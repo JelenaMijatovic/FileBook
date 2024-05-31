@@ -23,9 +23,9 @@ public class AddFileCommand implements CLICommand {
                 return;
             }
             if (visibility.equals("public"))
-                AppConfig.chordState.addFile(path, 0, 0);
+                AppConfig.chordState.addFile(path, 0);
             else if (visibility.equals("private"))
-                AppConfig.chordState.addFile(path, 1, 0);
+                AppConfig.chordState.addFile(path, 1);
             else
                 AppConfig.timestampedErrorPrint("add_file: Incorrect visiblity argument");
         } else {

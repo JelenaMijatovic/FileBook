@@ -2,6 +2,7 @@ package servent.handler;
 
 import app.AppConfig;
 import servent.message.Message;
+import servent.message.MessageType;
 
 public class SendFilesHandler implements MessageHandler{
 
@@ -13,6 +14,10 @@ public class SendFilesHandler implements MessageHandler{
 
     @Override
     public void run() {
-        AppConfig.timestampedStandardPrint(clientMessage.getSenderPort() + ": " + clientMessage.getMessageText());
+        if (clientMessage.getMessageType() == MessageType.SEND) {
+            AppConfig.timestampedStandardPrint(clientMessage.getSenderPort() + ": " + clientMessage.getMessageText());
+        } else {
+            AppConfig.timestampedErrorPrint("Send files handler got a message that is not SEND");
+        }
     }
 }

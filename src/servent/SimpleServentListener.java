@@ -70,9 +70,6 @@ public class SimpleServentListener implements Runnable, Cancellable {
 				case UPDATE:
 					messageHandler = new UpdateHandler(clientMessage);
 					break;
-				case PUT:
-					messageHandler = new PutHandler(clientMessage);
-					break;
 				case COPY:
 					messageHandler = new CopyHandler(clientMessage);
 					break;
@@ -82,11 +79,8 @@ public class SimpleServentListener implements Runnable, Cancellable {
 				case SEND:
 					messageHandler = new SendFilesHandler(clientMessage);
 					break;
-				case ASK_GET:
-					messageHandler = new AskGetHandler(clientMessage);
-					break;
-				case TELL_GET:
-					messageHandler = new TellGetHandler(clientMessage);
+				case REMOVE:
+					messageHandler = new RemoveHandler(clientMessage);
 					break;
 				case POISON:
 					break;

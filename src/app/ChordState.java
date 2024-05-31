@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 import servent.message.*;
@@ -50,7 +52,8 @@ public class ChordState {
 	
 	private Map<Integer, Integer> valueMap;
 
-	private Map<String, Integer> fileMap;
+	private Map<String, Integer> myFiles;
+	private Map<String, Integer> backupFiles;
 	private Set<Integer> friends;
 	
 	public ChordState() {
@@ -71,7 +74,8 @@ public class ChordState {
 		
 		predecessorInfo = null;
 		valueMap = new HashMap<>();
-		fileMap = new HashMap<>();
+		myFiles = new HashMap<>();
+		backupFiles = new HashMap<>();
 		friends = new HashSet<>();
 		allNodeInfo = new ArrayList<>();
 	}
@@ -313,37 +317,53 @@ public class ChordState {
 	}
 
 	/**
-	 * The Chord put operation. Stores locally if key is ours, otherwise sends it on.
+	 * The add file operation. Creates file and stores path and visibility locally. Asks two closest successors to backup files
 	 */
-	public void putValue(int key, int value) {
-		if (isKeyMine(key)) {
-			valueMap.put(key, value);
-		} else {
-			ServentInfo nextNode = getNextNodeForKey(key);
-			PutMessage pm = new PutMessage(AppConfig.myServentInfo.getListenerPort(), nextNode.getListenerPort(), key, value);
-			MessageUtil.sendMessage(pm);
-		}
-	}
-
-	/**
-	 * The add file operation. Creates file and stores path and visibility locally. Asks its closest neighbour to copy file if copy count is below 2
-	 */
-	public void addFile(String path, int visibility, int count) { //predecessor will have a copy of your file, if its down send file further
+	public void addFile(String path, int visibility) { //predecessor will have a copy of your file, if its down send file further
 		File newFile = new File(AppConfig.root+"/"+path);
 		try {
 			if (newFile.createNewFile()) {
-				fileMap.put(newFile.getPath(), count*10 + visibility);
+				myFiles.put(newFile.getPath(), visibility);
+				AppConfig.timestampedStandardPrint("Created file " + path);
+				int count = 0;
+				while (count < 2) {
+					CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[count].getListenerPort(), path);
+					MessageUtil.sendMessage(cm);
+					count++;
+				}
 			} else {
 				AppConfig.timestampedErrorPrint("add_file: File with filename " + path + " already present on servent");
+            }
+		} catch (IOException e) {
+			AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
+        }
+	}
+
+	/**
+	 * The backup file operation. Creates file in backup and stores the local path and original owner
+	 * If backup creation fails, sends notice to original sender
+	 */
+	public void backupFile(String path, int originalSenderPort) {
+		if (!Files.exists(Path.of(AppConfig.root + "/backup/" + originalSenderPort))) {
+			try {
+				Files.createDirectories(Path.of(AppConfig.root + "/backup/" + originalSenderPort));
+			} catch (IOException e) {
+				AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
+				//warn
 				return;
+			}
+		}
+		File newFile = new File(AppConfig.root+"/backup/"+originalSenderPort+"/"+path);
+		try {
+			if (newFile.createNewFile()) {
+				backupFiles.put(newFile.getPath(), originalSenderPort);
+				//AppConfig.timestampedStandardPrint("Created backup " + path);
+			} else {
+				AppConfig.timestampedErrorPrint("add_file: Backup of " + path + " from servent " + originalSenderPort + " already present");
 			}
 		} catch (IOException e) {
 			AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
-			return;
-		}
-		if (count < 2) {
-			CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[0].getListenerPort(), path, visibility, count+1);
-			MessageUtil.sendMessage(cm);
+			//warn
 		}
 	}
 
@@ -353,12 +373,12 @@ public class ChordState {
 	public String listFiles(int port) {
 		String files = "";
 		if (AppConfig.myServentInfo.getListenerPort() == port || friends.contains(port)) {
-			for (String f : fileMap.keySet()) {
+			for (String f : myFiles.keySet()) {
 				files = files.concat(f + ",");
 			}
 			files = files.substring(0,files.length()-1);
 		} else {
-			for (Map.Entry<String, Integer> e : fileMap.entrySet()) {
+			for (Map.Entry<String, Integer> e : myFiles.entrySet()) {
 				if (e.getValue() == 0) {
 					files = files.concat(e.getKey() + ",");
 				}
@@ -384,23 +404,37 @@ public class ChordState {
 	}
 
 	/**
-	 * The chord get operation. Gets the value locally if key is ours, otherwise asks someone else to give us the value.
-	 * @return <ul>
-	 *			<li>The value, if we have it</li>
-	 *			<li>-1 if we own the key, but there is nothing there</li>
-	 *			<li>-2 if we asked someone else</li>
-	 *		   </ul>
+	 * The delete file operation. Tries to delete file locally, and sends notice to successors to delete copies
 	 */
-	public int getValue(int key) {
-		if (isKeyMine(key)) {
-            return valueMap.getOrDefault(key, -1);
+	public void removeFile(String path) {
+		File file = new File(AppConfig.root + "/" + path);
+		String filepath = file.getPath();
+		if (file.delete()) {
+			myFiles.remove(filepath);
+			AppConfig.timestampedStandardPrint("Removed file " + path);
+			int count = 0;
+			while (count < 2) {
+				RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[count].getListenerPort(), path);
+				MessageUtil.sendMessage(rm);
+				count++;
+			}
+		} else {
+			AppConfig.timestampedErrorPrint("remove_file: file " + path + " couldn't be succesfully deleted");
 		}
-		
-		ServentInfo nextNode = getNextNodeForKey(key);
-		AskGetMessage agm = new AskGetMessage(AppConfig.myServentInfo.getListenerPort(), nextNode.getListenerPort(), String.valueOf(key));
-		MessageUtil.sendMessage(agm);
-		
-		return -2;
+	}
+
+	/**
+	 * The delete backup operation. Deletes local backup and removes path from memory
+	 */
+	public void removeBackup(String path, int originalSenderPort) {
+		File file = new File(AppConfig.root+"/backup/"+originalSenderPort+"/"+path);
+		String filepath = file.getPath();
+		if (file.delete()) {
+			backupFiles.remove(filepath);
+			//AppConfig.timestampedStandardPrint("Deleted backup " + path);
+		} else {
+			AppConfig.timestampedErrorPrint("remove_file: backup " + path + " from servent " + originalSenderPort + " couldn't be succesfully deleted");
+		}
 	}
 
 }
