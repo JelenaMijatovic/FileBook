@@ -22,10 +22,8 @@ public class StopCommand implements CLICommand {
 
 	@Override
 	public void execute(String args) {
-		for (ServentInfo si: AppConfig.chordState.getSuccessorTable()) {
-			//si.getListenerPort()
-		}
 		AppConfig.timestampedStandardPrint("Stopping...");
+		AppConfig.chordState.stopTimer();
 		parser.stop();
 		listener.stop();
 	}

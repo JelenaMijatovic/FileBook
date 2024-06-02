@@ -1,0 +1,9 @@
+pause 10000
+add_file new.txt private
+add_friend localhost:1300
+pause 4000
+view_files
+pause 10000
+remove_file new.txt
+pause 10000
+stop

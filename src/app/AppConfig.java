@@ -52,6 +52,9 @@ public class AppConfig {
 	public static boolean INITIALIZED = false;
 	public static int BOOTSTRAP_PORT;
 	public static int SERVENT_COUNT;
+
+	public static int WEAK_lIMIT;
+	public static int STRONG_LIMIT;
 	
 	public static ChordState chordState;
 	
@@ -101,6 +104,20 @@ public class AppConfig {
 			SERVENT_COUNT = Integer.parseInt(properties.getProperty("servent_count"));
 		} catch (NumberFormatException e) {
 			timestampedErrorPrint("Problem reading servent_count. Exiting...");
+			System.exit(0);
+		}
+
+		try {
+			WEAK_lIMIT = Integer.parseInt(properties.getProperty("weak_limit"));
+		} catch (NumberFormatException e) {
+			timestampedErrorPrint("Problem reading weak_limit. Exiting...");
+			System.exit(0);
+		}
+
+		try {
+			STRONG_LIMIT = Integer.parseInt(properties.getProperty("strong_limit"));
+		} catch (NumberFormatException e) {
+			timestampedErrorPrint("Problem reading strong_limit. Exiting...");
 			System.exit(0);
 		}
 		

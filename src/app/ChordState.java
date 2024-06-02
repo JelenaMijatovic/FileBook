@@ -8,6 +8,9 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import servent.message.*;
 import servent.message.util.MessageUtil;
@@ -55,6 +58,8 @@ public class ChordState {
 	private Map<String, Integer> myFiles;
 	private Map<String, Integer> backupFiles;
 	private Set<Integer> friends;
+	private ServentInfo[] backupSuccessors;
+	ScheduledExecutorService timerService = Executors.newSingleThreadScheduledExecutor();
 	
 	public ChordState() {
 		this.chordLevel = 1;
@@ -71,7 +76,8 @@ public class ChordState {
 		for (int i = 0; i < chordLevel; i++) {
 			successorTable[i] = null;
 		}
-		
+		backupSuccessors = new ServentInfo[2];
+
 		predecessorInfo = null;
 		valueMap = new HashMap<>();
 		myFiles = new HashMap<>();
@@ -104,6 +110,17 @@ public class ChordState {
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
+
+		timerService.scheduleAtFixedRate(() -> {
+			try {
+				for (ServentInfo si : backupSuccessors) {
+					if (si != null)
+						ping(si.getListenerPort());
+				}
+			} catch (Throwable e) {
+
+			}
+		}, 10000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
 	}
 	
 	public int getChordLevel() {
@@ -129,6 +146,10 @@ public class ChordState {
 	public Map<Integer, Integer> getValueMap() {
 		return valueMap;
 	}
+
+	public Map<String, Integer> getMyFiles() {
+		return myFiles;
+	}
 	
 	public void setValueMap(Map<Integer, Integer> valueMap) {
 		this.valueMap = valueMap;
@@ -136,6 +157,10 @@ public class ChordState {
 
 	public Set<Integer> getFriends() {
 		return friends;
+	}
+
+	public void stopTimer() {
+		timerService.shutdown();
 	}
 	
 	public boolean isCollision(int chordId) {
@@ -272,7 +297,17 @@ public class ChordState {
 				}
 			}
 		}
-		
+		backupSuccessors[0] = successorTable[0];
+		int i = 1;
+		while (i < successorTable.length) {
+			if (successorTable[i].getChordId() != successorTable[0].getChordId()) {
+				backupSuccessors[1] = successorTable[i];
+				break;
+			}
+			i++;
+		}
+		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors[0].getChordId()));
+		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors[1].getChordId()));
 	}
 
 	/**
@@ -325,11 +360,11 @@ public class ChordState {
 			if (newFile.createNewFile()) {
 				myFiles.put(newFile.getPath(), visibility);
 				AppConfig.timestampedStandardPrint("Created file " + path);
-				int count = 0;
-				while (count < 2) {
-					CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[count].getListenerPort(), path);
-					MessageUtil.sendMessage(cm);
-					count++;
+				for (ServentInfo si : backupSuccessors) {
+					if (si != null) {
+						CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), path);
+						MessageUtil.sendMessage(cm);
+					}
 				}
 			} else {
 				AppConfig.timestampedErrorPrint("add_file: File with filename " + path + " already present on servent");
@@ -412,12 +447,21 @@ public class ChordState {
 		if (file.delete()) {
 			myFiles.remove(filepath);
 			AppConfig.timestampedStandardPrint("Removed file " + path);
-			int count = 0;
-			while (count < 2) {
-				RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[count].getListenerPort(), path);
-				MessageUtil.sendMessage(rm);
-				count++;
-			}
+			for (ServentInfo si : backupSuccessors) {
+				if (si != null) {
+					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), path);
+					MessageUtil.sendMessage(rm);
+				}
+			}/*
+			while (count < 2 && i < successorTable.length) {
+				if (successorTable[i].getChordId() != curr) {
+					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[i].getListenerPort(), path);
+					MessageUtil.sendMessage(rm);
+					count++;
+				}
+				curr = successorTable[i].getChordId();
+				i++;
+			}*/
 		} else {
 			AppConfig.timestampedErrorPrint("remove_file: file " + path + " couldn't be succesfully deleted");
 		}
@@ -435,6 +479,14 @@ public class ChordState {
 		} else {
 			AppConfig.timestampedErrorPrint("remove_file: backup " + path + " from servent " + originalSenderPort + " couldn't be succesfully deleted");
 		}
+	}
+
+	/**
+	 * Pings target servent
+	 */
+	public void ping(int port) {
+		PingMessage pm = new PingMessage(AppConfig.myServentInfo.getListenerPort(), port);
+		MessageUtil.sendMessage(pm);
 	}
 
 }
