@@ -8,12 +8,15 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import servent.message.*;
 import servent.message.util.MessageUtil;
+
+import static java.lang.Math.abs;
 
 /**
  * This class implements all the logic required for Chord to function.
@@ -58,7 +61,8 @@ public class ChordState {
 	private Map<String, Integer> myFiles;
 	private Map<String, Integer> backupFiles;
 	private Set<Integer> friends;
-	private ServentInfo[] backupSuccessors;
+	private Integer[] backupSuccessors;
+	private Integer[] backupLateCount;
 	ScheduledExecutorService timerService = Executors.newSingleThreadScheduledExecutor();
 	
 	public ChordState() {
@@ -76,7 +80,8 @@ public class ChordState {
 		for (int i = 0; i < chordLevel; i++) {
 			successorTable[i] = null;
 		}
-		backupSuccessors = new ServentInfo[2];
+		backupSuccessors = new Integer[2];
+		backupLateCount = new Integer[2];
 
 		predecessorInfo = null;
 		valueMap = new HashMap<>();
@@ -111,18 +116,62 @@ public class ChordState {
 			e.printStackTrace();
 		}
 
-		timerService.scheduleAtFixedRate(() -> {
-			try {
-				for (ServentInfo si : backupSuccessors) {
-					if (si != null)
-						ping(si.getListenerPort());
-				}
-			} catch (Throwable e) {
+		initPingTimer();
+	}
 
+	/**
+	 * Starts a thread that will periodically ping its backups to check for connection health.
+	 */
+	public void initPingTimer() {
+		timerService.scheduleAtFixedRate(() -> {
+			for (int i = 0; i < 2; i++) {
+				if (backupSuccessors[i] != null && backupLateCount[i] > 0) {
+					AppConfig.timestampedStandardPrint(backupSuccessors[i] + " late!");
+                    if (backupLateCount[abs(i-1)] == 0) {
+						SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessors[abs(i - 1)], backupSuccessors[i]);
+						MessageUtil.sendMessage(sm);
+                    } else {
+						SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), backupSuccessors[i]);
+						MessageUtil.sendMessage(sm);
+                    }
+                    if (backupLateCount[i] > 4) {
+						AppConfig.timestampedStandardPrint(backupSuccessors[i] + " super late!");
+						removeNode(backupSuccessors[i]);
+					}
+				}
+				if (backupSuccessors[i] != null) {
+					ping(backupSuccessors[i]);
+					backupLateCount[i]++;
+				}
 			}
 		}, 10000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
 	}
-	
+
+	/*
+		public void initPingTimer() {
+		timerService.scheduleAtFixedRate(() -> {
+			for (Integer port : backupSuccessors.keySet()) {
+				if (backupSuccessors.get(port) > 0) {
+					AppConfig.timestampedStandardPrint(port + " late!");
+					for (Integer helport : backupSuccessors.keySet()) {
+						if (backupSuccessors.get(helport) == 0) {
+							SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), port);
+							MessageUtil.sendMessage(sm);
+							break;
+						}
+					}
+					if (backupSuccessors.get(port) > 4) {
+						AppConfig.timestampedStandardPrint(port + " super late!");
+						removeNode(port);
+					}
+				}
+				if (port != null) {
+					ping(port);
+					backupSuccessors.put(port, backupSuccessors.get(port) + 1);
+				}
+			}
+		}, 10000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
+	}*/
 	public int getChordLevel() {
 		return chordLevel;
 	}
@@ -147,16 +196,28 @@ public class ChordState {
 		return valueMap;
 	}
 
-	public Map<String, Integer> getMyFiles() {
-		return myFiles;
+	public List<ServentInfo> getAllNodeInfo() {
+		return allNodeInfo;
 	}
-	
+
 	public void setValueMap(Map<Integer, Integer> valueMap) {
 		this.valueMap = valueMap;
 	}
 
 	public Set<Integer> getFriends() {
 		return friends;
+	}
+
+	/*public ConcurrentHashMap<Integer, Integer> getBackupSuccessors() {
+		return backupSuccessors;
+	}*/
+
+	public Integer[] getBackupSuccessors() {
+		return backupSuccessors;
+	}
+
+	public Integer[] getBackupLateCount() {
+		return backupLateCount;
 	}
 
 	public void stopTimer() {
@@ -297,17 +358,57 @@ public class ChordState {
 				}
 			}
 		}
-		backupSuccessors[0] = successorTable[0];
+		int oldPort = 0;
+		int oldCount = 0;
+		if (backupSuccessors[0] == null) {
+			backupSuccessors[0] = successorTable[0].getListenerPort();
+			backupLateCount[0] = 0;
+		} else if (backupSuccessors[0] != successorTable[0].getListenerPort()) {
+			oldPort = backupSuccessors[0];
+			backupSuccessors[0] = successorTable[0].getListenerPort();
+			oldCount = backupLateCount[0];
+			backupLateCount[0] = 0;
+			catchUpBackup(backupSuccessors[0]);
+		}
 		int i = 1;
 		while (i < successorTable.length) {
-			if (successorTable[i].getChordId() != successorTable[0].getChordId()) {
-				backupSuccessors[1] = successorTable[i];
+			if (successorTable[i].getChordId() != successorTable[i-1].getChordId()) {
+				if (backupSuccessors[1] == null) {
+					backupSuccessors[1] = successorTable[i].getListenerPort();
+					if (oldPort == backupSuccessors[1]) {
+						backupLateCount[1] = oldCount;
+					} else {
+						backupLateCount[1] = 0;
+					}
+					break;
+				} else if (backupSuccessors[1] != successorTable[i].getListenerPort()) {
+					backupSuccessors[1] = successorTable[i].getListenerPort();
+					if (oldPort == backupSuccessors[1]) {
+						backupLateCount[1] = oldCount;
+					} else {
+						backupLateCount[1] = 0;
+						catchUpBackup(backupSuccessors[1]);
+					}
+					break;
+				}
+			}
+			i++;
+		}
+		//if i is successorTable.length, a second backup wasn't found
+		if (i == successorTable.length) {
+			backupSuccessors[1] = null;
+		}
+		AppConfig.timestampedStandardPrint(Arrays.toString(backupSuccessors));
+		/*backupSuccessors.put(successorTable[0].getListenerPort(), 0);
+		int i = 1;
+		while (i < successorTable.length) {
+			if (successorTable[i].getChordId() != successorTable[i-1].getChordId()) {
+				backupSuccessors.put(successorTable[i].getListenerPort(), 0);
 				break;
 			}
 			i++;
 		}
-		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors[0].getChordId()));
-		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors[1].getChordId()));
+		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors.keySet()));*/
 	}
 
 	/**
@@ -352,20 +453,68 @@ public class ChordState {
 	}
 
 	/**
+	 *
+	 */
+	public void removeNode(Integer port) {
+		requestToken();
+        allNodeInfo.removeIf(si -> si.getListenerPort() == port);
+		updateSuccessorTable();
+		LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), port);
+		MessageUtil.sendMessage(lnm);
+		releaseToken();
+	}
+
+	/**
+	 * Checks whether the generated key for the file belongs to us, if so creates file locally, otherwise asks someone else to create the file
+	 */
+	public void askAddFile(int key, String path, int visibility) {
+		if (isKeyMine(key)) {
+			AppConfig.timestampedStandardPrint("My key! " + key);
+			addFile(path, visibility);
+		} else {
+			AppConfig.timestampedStandardPrint("Not my key! " + key);
+			ServentInfo nextNode = getNextNodeForKey(key);
+			AskAddMessage am = new AskAddMessage(AppConfig.myServentInfo.getListenerPort(), nextNode.getListenerPort(), key, path, visibility);
+			MessageUtil.sendMessage(am);
+		}
+	}
+
+	/**
+	 * Checks whether the generated key for the file belongs to us, if so removes file locally, otherwise asks someone else to remove the file
+	 */
+	public void askRemoveFile(int key, String path) {
+		if (isKeyMine(key)) {
+			AppConfig.timestampedStandardPrint("My key! " + key);
+			removeFile(path);
+		} else {
+			AppConfig.timestampedStandardPrint("Not my key! " + key);
+			ServentInfo nextNode = getNextNodeForKey(key);
+			AskRemoveMessage arm = new AskRemoveMessage(AppConfig.myServentInfo.getListenerPort(), nextNode.getListenerPort(), key, path);
+			MessageUtil.sendMessage(arm);
+		}
+	}
+
+	/**
 	 * The add file operation. Creates file and stores path and visibility locally. Asks two closest successors to backup files
 	 */
-	public void addFile(String path, int visibility) { //predecessor will have a copy of your file, if its down send file further
+	public void addFile(String path, int visibility) {
 		File newFile = new File(AppConfig.root+"/"+path);
 		try {
 			if (newFile.createNewFile()) {
 				myFiles.put(newFile.getPath(), visibility);
 				AppConfig.timestampedStandardPrint("Created file " + path);
-				for (ServentInfo si : backupSuccessors) {
-					if (si != null) {
-						CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), path);
+                for (Integer backupSuccessor : backupSuccessors) {
+                    if (backupSuccessor != null) {
+                        CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessor, path);
+                        MessageUtil.sendMessage(cm);
+                    }
+                }
+				/*for (Integer port : backupSuccessors.keySet()) {
+					if (port != null) {
+						CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), port, path);
 						MessageUtil.sendMessage(cm);
 					}
-				}
+				}*/
 			} else {
 				AppConfig.timestampedErrorPrint("add_file: File with filename " + path + " already present on servent");
             }
@@ -392,13 +541,47 @@ public class ChordState {
 		try {
 			if (newFile.createNewFile()) {
 				backupFiles.put(newFile.getPath(), originalSenderPort);
-				//AppConfig.timestampedStandardPrint("Created backup " + path);
+				AppConfig.timestampedStandardPrint("Created backup " + path);
 			} else {
 				AppConfig.timestampedErrorPrint("add_file: Backup of " + path + " from servent " + originalSenderPort + " already present");
 			}
 		} catch (IOException e) {
 			AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
 			//warn
+		}
+	}
+
+	/**
+	 * If we gained a new backup, tell it to copy all our files up to now
+	 */
+	public void catchUpBackup(int backupPort) {
+		for (String path : myFiles.keySet()) {
+			String filename = String.valueOf(Path.of(path).getFileName());
+			CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), backupPort, filename);
+			MessageUtil.sendMessage(cm);
+		}
+	}
+
+	/**
+	 * Transfers our predecessors' backups to our main file storage if our predecessor goes down
+	 */
+	public void takeOverFilesFromBackup(int port) {
+		for (Map.Entry<String, Integer> backup : backupFiles.entrySet()) {
+			if (backup.getValue() == port) {
+				String filename = String.valueOf(Path.of(backup.getKey()).getFileName());
+				File newFile = new File(AppConfig.root+"/"+filename);
+				try {
+					if (newFile.createNewFile()) {
+						myFiles.put(newFile.getPath(), 1);
+						AppConfig.timestampedStandardPrint("Took over file: " + filename);
+					} else {
+						AppConfig.timestampedErrorPrint("add_file: File with filename " + filename + " already present on servent");
+					}
+				} catch (IOException e) {
+					AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
+				}
+				removeBackup(filename, port);
+			}
 		}
 	}
 
@@ -428,10 +611,12 @@ public class ChordState {
 	 */
 	public void getFiles(int OrigSenderPort, int requestedPort) {
 		for (ServentInfo si : successorTable) {
-			if (si.getListenerPort() == requestedPort) {
-				GetFilesMessage gm = new GetFilesMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), OrigSenderPort, requestedPort);
-				MessageUtil.sendMessage(gm);
-				return;
+			if (si != null) {
+				if (si.getListenerPort() == requestedPort) {
+					GetFilesMessage gm = new GetFilesMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), OrigSenderPort, requestedPort);
+					MessageUtil.sendMessage(gm);
+					return;
+				}
 			}
 		}
 		GetFilesMessage gm = new GetFilesMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), OrigSenderPort, requestedPort);
@@ -447,12 +632,19 @@ public class ChordState {
 		if (file.delete()) {
 			myFiles.remove(filepath);
 			AppConfig.timestampedStandardPrint("Removed file " + path);
-			for (ServentInfo si : backupSuccessors) {
-				if (si != null) {
-					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), si.getListenerPort(), path);
+			for (Integer backupSuccessor : backupSuccessors) {
+				if (backupSuccessor != null) {
+					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessor, path);
 					MessageUtil.sendMessage(rm);
 				}
 			}/*
+			for (Integer port : backupSuccessors.keySet()) {
+				if (port != null) {
+					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), port, path);
+					MessageUtil.sendMessage(rm);
+				}
+			}*/
+			/*
 			while (count < 2 && i < successorTable.length) {
 				if (successorTable[i].getChordId() != curr) {
 					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[i].getListenerPort(), path);
@@ -475,7 +667,7 @@ public class ChordState {
 		String filepath = file.getPath();
 		if (file.delete()) {
 			backupFiles.remove(filepath);
-			//AppConfig.timestampedStandardPrint("Deleted backup " + path);
+			AppConfig.timestampedStandardPrint("Deleted backup " + path);
 		} else {
 			AppConfig.timestampedErrorPrint("remove_file: backup " + path + " from servent " + originalSenderPort + " couldn't be succesfully deleted");
 		}
@@ -487,6 +679,52 @@ public class ChordState {
 	public void ping(int port) {
 		PingMessage pm = new PingMessage(AppConfig.myServentInfo.getListenerPort(), port);
 		MessageUtil.sendMessage(pm);
+	}
+
+	/**
+	 * SK token request
+	 */
+	public void requestToken() {
+		if (!AppConfig.hasToken.get()) {
+			AppConfig.timestampedStandardPrint("Asking for token!");
+			AppConfig.requests[AppConfig.myId]++;
+			TokenRequestMessage trmFrwd = new TokenRequestMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), AppConfig.myId, AppConfig.requests[AppConfig.myId], "F");
+			TokenRequestMessage trmBack = new TokenRequestMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), AppConfig.myId, AppConfig.requests[AppConfig.myId], "B");
+			MessageUtil.sendMessage(trmFrwd);
+			MessageUtil.sendMessage(trmBack);
+			while (!AppConfig.hasToken.get()) {
+
+			}
+		}
+		AppConfig.inCriticalSection.set(true);
+		AppConfig.timestampedStandardPrint("Entered critical section! ");
+	}
+
+	/**
+	 * SK token release
+	 */
+	public void releaseToken() {
+		AppConfig.timestampedStandardPrint("Releasing token!");
+		AppConfig.inCriticalSection.set(false);
+		AppConfig.token.getLastRequests()[AppConfig.myId] = AppConfig.requests[AppConfig.myId];
+        List<Integer> processesInQ = new ArrayList<>(AppConfig.token.getQueue());
+		for (int i = 0; i < AppConfig.SERVENT_COUNT; i++) {
+			if (!processesInQ.contains(i) && Objects.equals(AppConfig.requests[i], AppConfig.token.getLastRequests()[i] + 1)) {
+				AppConfig.token.getQueue().add(i);
+			}
+		}
+		Integer head = AppConfig.token.getQueue().peek();
+		AppConfig.timestampedStandardPrint(String.valueOf(head));
+		if (head != null) {
+			if (head == AppConfig.myId) {
+				head = AppConfig.token.getQueue().poll();
+			}
+		}
+		AppConfig.timestampedStandardPrint(String.valueOf(head));
+		if (head != null) {
+			TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), head, AppConfig.token.toString());
+			MessageUtil.sendMessage(tsm);
+		}
 	}
 
 }

@@ -4,4 +4,6 @@ view_files localhost:1400
 pause 10000
 remove_file test.txt
 pause 10000
+pause 20000
+pause 20000
 stop

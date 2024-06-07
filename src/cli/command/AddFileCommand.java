@@ -2,8 +2,9 @@ package cli.command;
 
 import app.AppConfig;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.Random;
+
+import static java.lang.Math.abs;
 
 public class AddFileCommand implements CLICommand {
 
@@ -18,14 +19,13 @@ public class AddFileCommand implements CLICommand {
         if (splitArgs.length == 2) {
             String path = splitArgs[0];
             String visibility = splitArgs[1];
-            if (Files.exists(Path.of(AppConfig.root + "/" + path))) {
-                AppConfig.timestampedErrorPrint("add_file: File with filename " + path + " already present on servent");
-                return;
+            int key = abs(path.hashCode()) % 64;
+            if (visibility.equals("public")) {
+                AppConfig.chordState.askAddFile(key, path, 0);
             }
-            if (visibility.equals("public"))
-                AppConfig.chordState.addFile(path, 0);
-            else if (visibility.equals("private"))
-                AppConfig.chordState.addFile(path, 1);
+            else if (visibility.equals("private")) {
+                AppConfig.chordState.askAddFile(key, path, 1);
+            }
             else
                 AppConfig.timestampedErrorPrint("add_file: Incorrect visiblity argument");
         } else {

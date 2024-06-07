@@ -9,6 +9,8 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Properties;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * This class contains all the global application configuration stuff.
@@ -22,10 +24,14 @@ public class AppConfig {
 	 */
 	public static ServentInfo myServentInfo;
 
+	public static int myId;
+
 	/**
 	 * The path to this servent's file directory
 	 */
 	public static String root;
+
+	public static Integer[] requests;
 	
 	/**
 	 * Print a message to stdout with a timestamp
@@ -48,8 +54,9 @@ public class AppConfig {
 		
 		System.err.println(timeFormat.format(now) + " - " + message);
 	}
-	
-	public static boolean INITIALIZED = false;
+	public static SKToken token;
+	public static AtomicBoolean hasToken = new AtomicBoolean(false);
+	public static AtomicBoolean inCriticalSection = new AtomicBoolean(false);
 	public static int BOOTSTRAP_PORT;
 	public static int SERVENT_COUNT;
 
@@ -57,6 +64,7 @@ public class AppConfig {
 	public static int STRONG_LIMIT;
 	
 	public static ChordState chordState;
+
 	
 	/**
 	 * Reads a config file. Should be called once at start of app.
@@ -146,6 +154,7 @@ public class AppConfig {
 		}
 
 		String portProperty = "servent"+serventId+".port";
+		myId = serventId;
 		
 		int serventPort = -1;
 		
@@ -155,7 +164,10 @@ public class AppConfig {
 			timestampedErrorPrint("Problem reading " + portProperty + ". Exiting...");
 			System.exit(0);
 		}
-		
+		requests = new Integer[SERVENT_COUNT];
+		for (int i = 0; i < SERVENT_COUNT; i++) {
+			requests[i] = 0;
+		}
 		myServentInfo = new ServentInfo("localhost", serventPort);
 	}
 	

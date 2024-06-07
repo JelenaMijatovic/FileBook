@@ -2,9 +2,11 @@ pause 40000
 add_friend localhost:1100
 add_file testview.txt public
 add_file testview1.txt private
-pause 5000
+pause 10000
 pause 5000
 remove_file testview.txt
 remove_file testview1.txt
 pause 10000
+pause 20000
+pause 20000
 stop

@@ -70,20 +70,44 @@ public class SimpleServentListener implements Runnable, Cancellable {
 				case UPDATE:
 					messageHandler = new UpdateHandler(clientMessage);
 					break;
+				case LOST:
+					messageHandler = new LostNodeHandler(clientMessage);
+					break;
+				case PING:
+					messageHandler = new PingHandler(clientMessage);
+					break;
+				case PONG:
+					messageHandler = new PongHandler(clientMessage);
+					break;
+				case TOK_REQ:
+					messageHandler = new TokenRequestHandler(clientMessage);
+					break;
+				case TOK_SEND:
+					messageHandler = new TokenSenderHandler(clientMessage);
+					break;
+				case TOK_REC:
+					messageHandler = new TokenReceivedHandler(clientMessage);
+					break;
+				case SUS:
+					messageHandler = new SuspectHandler(clientMessage);
+					break;
 				case COPY:
 					messageHandler = new CopyHandler(clientMessage);
 					break;
 				case GET:
 					messageHandler = new GetFilesHandler(clientMessage);
 					break;
+				case ASK_ADD:
+					messageHandler = new AskAddHandler(clientMessage);
+					break;
+				case ASK_REMOVE:
+					messageHandler = new AskRemoveHandler(clientMessage);
+					break;
 				case SEND:
 					messageHandler = new SendFilesHandler(clientMessage);
 					break;
 				case REMOVE:
 					messageHandler = new RemoveHandler(clientMessage);
-					break;
-				case PING:
-					messageHandler = new PingHandler(clientMessage);
 					break;
 				case POISON:
 					break;

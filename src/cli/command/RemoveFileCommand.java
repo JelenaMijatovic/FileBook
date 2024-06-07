@@ -6,6 +6,8 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static java.lang.Math.abs;
+
 public class RemoveFileCommand implements CLICommand {
 
     @Override
@@ -16,10 +18,6 @@ public class RemoveFileCommand implements CLICommand {
     @Override
     public void execute(String args) {
         String path = args;
-        if (!Files.exists(Path.of(AppConfig.root + "/" + path))) {
-            AppConfig.timestampedErrorPrint("remove_file: file " + path + " doesn't exist");
-        } else {
-            AppConfig.chordState.removeFile(path);
-        }
+        AppConfig.chordState.askRemoveFile(abs(path.hashCode()) % 64, path);
     }
 }

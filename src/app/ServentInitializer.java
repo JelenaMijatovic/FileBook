@@ -46,6 +46,8 @@ public class ServentInitializer implements Runnable {
 		}
 		if (someServentPort == -1) { //bootstrap gave us -1 -> we are first
 			AppConfig.timestampedStandardPrint("First node in Chord system.");
+			AppConfig.token = new SKToken();
+			AppConfig.hasToken.set(true);
 		} else { //bootstrap gave us something else - let that node tell our successor that we are here
 			NewNodeMessage nnm = new NewNodeMessage(AppConfig.myServentInfo.getListenerPort(), someServentPort);
 			MessageUtil.sendMessage(nnm);

@@ -5,4 +5,6 @@ pause 10000
 remove_file faraway.txt
 remove_file faraway.png
 pause 20000
+pause 20000
+pause 20000
 stop
