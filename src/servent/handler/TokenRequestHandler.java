@@ -36,15 +36,16 @@ public class TokenRequestHandler implements MessageHandler{
                             AppConfig.timestampedStandardPrint("Sending token!");
                             TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), clientMessage.getSenderPort(), requesterId, AppConfig.token.toString());
                             MessageUtil.sendMessage(tsm);
-                            //AppConfig.hasToken.set(false); - TokenReceivedHandler
+                            AppConfig.hasToken.set(false);
+                        } else if (!AppConfig.hasToken.get()) {
+                            TokenRequestMessage trm;
+                            if (Objects.equals(direction, "F")) {
+                                trm = new TokenRequestMessage(clientMessage.getSenderPort(), AppConfig.chordState.getNextNodePort(), requesterId, sequenceNumber, "F");
+                            } else {
+                                trm = new TokenRequestMessage(clientMessage.getSenderPort(), AppConfig.chordState.getPredecessor().getListenerPort(), requesterId, sequenceNumber, "B");
+                            }
+                            MessageUtil.sendMessage(trm);
                         }
-                        TokenRequestMessage trm;
-                        if (Objects.equals(direction, "F")) {
-                            trm = new TokenRequestMessage(clientMessage.getSenderPort(), AppConfig.chordState.getNextNodePort(), requesterId, sequenceNumber, "F");
-                        } else {
-                            trm = new TokenRequestMessage(clientMessage.getSenderPort(), AppConfig.chordState.getPredecessor().getListenerPort(), requesterId, sequenceNumber, "B");
-                        }
-                        MessageUtil.sendMessage(trm);
                     }
                 } catch (NumberFormatException e) {
                     AppConfig.timestampedErrorPrint("Got token request message with bad text: " + clientMessage.getMessageText());

@@ -13,6 +13,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import servent.handler.IsAliveHandler;
 import servent.message.*;
 import servent.message.util.MessageUtil;
 
@@ -61,8 +62,10 @@ public class ChordState {
 	private Map<String, Integer> myFiles;
 	private Map<String, Integer> backupFiles;
 	private Set<Integer> friends;
+	private HashMap<Integer, Integer> suspects;
 	private Integer[] backupSuccessors;
 	private Integer[] backupLateCount;
+	private int neighbourWithToken;
 	ScheduledExecutorService timerService = Executors.newSingleThreadScheduledExecutor();
 	
 	public ChordState() {
@@ -88,6 +91,8 @@ public class ChordState {
 		myFiles = new HashMap<>();
 		backupFiles = new HashMap<>();
 		friends = new HashSet<>();
+		suspects = new HashMap<>();
+		neighbourWithToken = 0;
 		allNodeInfo = new ArrayList<>();
 	}
 	
@@ -127,14 +132,16 @@ public class ChordState {
 			for (int i = 0; i < 2; i++) {
 				if (backupSuccessors[i] != null && backupLateCount[i] > 0) {
 					AppConfig.timestampedStandardPrint(backupSuccessors[i] + " late!");
-                    if (backupLateCount[abs(i-1)] == 0) {
-						SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessors[abs(i - 1)], backupSuccessors[i]);
-						MessageUtil.sendMessage(sm);
-                    } else {
-						SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), backupSuccessors[i]);
-						MessageUtil.sendMessage(sm);
-                    }
-                    if (backupLateCount[i] > 4) {
+					if (!suspects.containsKey(backupSuccessors[i])) {
+						IsAliveMessage iam = new IsAliveMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessors[i], null);
+						MessageUtil.sendMessage(iam);
+						if (backupSuccessors[abs(i - 1)] != null) {
+							SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessors[abs(i - 1)], backupSuccessors[i]);
+							MessageUtil.sendMessage(sm); //replace with IAM?
+						}
+						suspects.put(backupSuccessors[i], 2);
+					}
+                    if (backupLateCount[i] >= AppConfig.STRONG_LIMIT/AppConfig.WEAK_lIMIT && suspects.containsKey(backupSuccessors[i]) && suspects.get(backupSuccessors[i]) > 0) {
 						AppConfig.timestampedStandardPrint(backupSuccessors[i] + " super late!");
 						removeNode(backupSuccessors[i]);
 					}
@@ -144,34 +151,9 @@ public class ChordState {
 					backupLateCount[i]++;
 				}
 			}
-		}, 10000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
+		}, 5000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
 	}
 
-	/*
-		public void initPingTimer() {
-		timerService.scheduleAtFixedRate(() -> {
-			for (Integer port : backupSuccessors.keySet()) {
-				if (backupSuccessors.get(port) > 0) {
-					AppConfig.timestampedStandardPrint(port + " late!");
-					for (Integer helport : backupSuccessors.keySet()) {
-						if (backupSuccessors.get(helport) == 0) {
-							SuspectMessage sm = new SuspectMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), port);
-							MessageUtil.sendMessage(sm);
-							break;
-						}
-					}
-					if (backupSuccessors.get(port) > 4) {
-						AppConfig.timestampedStandardPrint(port + " super late!");
-						removeNode(port);
-					}
-				}
-				if (port != null) {
-					ping(port);
-					backupSuccessors.put(port, backupSuccessors.get(port) + 1);
-				}
-			}
-		}, 10000, AppConfig.WEAK_lIMIT, TimeUnit.MILLISECONDS);
-	}*/
 	public int getChordLevel() {
 		return chordLevel;
 	}
@@ -208,9 +190,17 @@ public class ChordState {
 		return friends;
 	}
 
-	/*public ConcurrentHashMap<Integer, Integer> getBackupSuccessors() {
-		return backupSuccessors;
-	}*/
+	public HashMap<Integer, Integer> getSuspects() {
+		return suspects;
+	}
+
+	public int getNeighbourWithToken() {
+		return neighbourWithToken;
+	}
+
+	public void setNeighbourWithToken(int neighbourWithToken) {
+		this.neighbourWithToken = neighbourWithToken;
+	}
 
 	public Integer[] getBackupSuccessors() {
 		return backupSuccessors;
@@ -358,57 +348,31 @@ public class ChordState {
 				}
 			}
 		}
+		backupSuccessors[0] = getPredecessor().getListenerPort();
 		int oldPort = 0;
-		int oldCount = 0;
-		if (backupSuccessors[0] == null) {
-			backupSuccessors[0] = successorTable[0].getListenerPort();
-			backupLateCount[0] = 0;
-		} else if (backupSuccessors[0] != successorTable[0].getListenerPort()) {
-			oldPort = backupSuccessors[0];
-			backupSuccessors[0] = successorTable[0].getListenerPort();
-			oldCount = backupLateCount[0];
-			backupLateCount[0] = 0;
-			catchUpBackup(backupSuccessors[0]);
+		if (backupSuccessors[1] != null) {
+			oldPort = backupSuccessors[1];
 		}
-		int i = 1;
-		while (i < successorTable.length) {
-			if (successorTable[i].getChordId() != successorTable[i-1].getChordId()) {
-				if (backupSuccessors[1] == null) {
-					backupSuccessors[1] = successorTable[i].getListenerPort();
-					if (oldPort == backupSuccessors[1]) {
-						backupLateCount[1] = oldCount;
-					} else {
-						backupLateCount[1] = 0;
-					}
-					break;
-				} else if (backupSuccessors[1] != successorTable[i].getListenerPort()) {
-					backupSuccessors[1] = successorTable[i].getListenerPort();
-					if (oldPort == backupSuccessors[1]) {
-						backupLateCount[1] = oldCount;
-					} else {
-						backupLateCount[1] = 0;
-						catchUpBackup(backupSuccessors[1]);
-					}
-					break;
-				}
-			}
-			i++;
+		backupSuccessors[1] = successorTable[0].getListenerPort();
+		if (oldPort != backupSuccessors[1]) {
+			backupLateCount[1] = 0;
+			catchUpBackup(backupSuccessors[1]);
+			//RemoveMessage rm
 		}
-		//if i is successorTable.length, a second backup wasn't found
-		if (i == successorTable.length) {
-			backupSuccessors[1] = null;
+		if (Objects.equals(backupSuccessors[0], backupSuccessors[1])) {
+			AppConfig.timestampedStandardPrint(backupSuccessors[0] + " is the only other node!");
+			backupLateCount[1] = null;
 		}
 		AppConfig.timestampedStandardPrint(Arrays.toString(backupSuccessors));
-		/*backupSuccessors.put(successorTable[0].getListenerPort(), 0);
-		int i = 1;
-		while (i < successorTable.length) {
-			if (successorTable[i].getChordId() != successorTable[i-1].getChordId()) {
-				backupSuccessors.put(successorTable[i].getListenerPort(), 0);
-				break;
+		for (Map.Entry<String, Integer> file : myFiles.entrySet()) {
+			String filename = String.valueOf(Path.of(file.getKey()).getFileName());
+			int hash = abs(filename.hashCode()) % 64;
+			if (!isKeyMine(hash)) {
+				AppConfig.timestampedStandardPrint("Redistributing file " + filename);
+				askAddFile(hash, filename, file.getValue());
+				removeFile(filename);
 			}
-			i++;
 		}
-		AppConfig.timestampedStandardPrint(String.valueOf(backupSuccessors.keySet()));*/
 	}
 
 	/**
@@ -420,12 +384,12 @@ public class ChordState {
 		allNodeInfo.addAll(newNodes);
 		
 		allNodeInfo.sort(new Comparator<ServentInfo>() {
-			
+
 			@Override
 			public int compare(ServentInfo o1, ServentInfo o2) {
 				return o1.getChordId() - o2.getChordId();
 			}
-			
+
 		});
 		
 		List<ServentInfo> newList = new ArrayList<>();
@@ -448,7 +412,6 @@ public class ChordState {
 		} else {
 			predecessorInfo = newList.get(newList.size()-1);
 		}
-		
 		updateSuccessorTable();
 	}
 
@@ -457,9 +420,14 @@ public class ChordState {
 	 */
 	public void removeNode(Integer port) {
 		requestToken();
-        allNodeInfo.removeIf(si -> si.getListenerPort() == port);
+		for (ServentInfo si : allNodeInfo) {
+			if (si.getListenerPort() == port) {
+				allNodeInfo.remove(si);
+				break;
+			}
+		}
 		updateSuccessorTable();
-		LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), port);
+		LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), port.toString());
 		MessageUtil.sendMessage(lnm);
 		releaseToken();
 	}
@@ -509,12 +477,6 @@ public class ChordState {
                         MessageUtil.sendMessage(cm);
                     }
                 }
-				/*for (Integer port : backupSuccessors.keySet()) {
-					if (port != null) {
-						CopyMessage cm = new CopyMessage(AppConfig.myServentInfo.getListenerPort(), port, path);
-						MessageUtil.sendMessage(cm);
-					}
-				}*/
 			} else {
 				AppConfig.timestampedErrorPrint("add_file: File with filename " + path + " already present on servent");
             }
@@ -533,7 +495,6 @@ public class ChordState {
 				Files.createDirectories(Path.of(AppConfig.root + "/backup/" + originalSenderPort));
 			} catch (IOException e) {
 				AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
-				//warn
 				return;
 			}
 		}
@@ -547,7 +508,6 @@ public class ChordState {
 			}
 		} catch (IOException e) {
 			AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
-			//warn
 		}
 	}
 
@@ -573,6 +533,13 @@ public class ChordState {
 				try {
 					if (newFile.createNewFile()) {
 						myFiles.put(newFile.getPath(), 1);
+						File file = new File(backup.getKey());
+						if (file.delete()) {
+							backupFiles.remove(backup.getKey());
+							AppConfig.timestampedStandardPrint("Deleted backup " + filename);
+						} else {
+							AppConfig.timestampedErrorPrint("remove_file: backup " + filename + " couldn't be succesfully deleted");
+						}
 						AppConfig.timestampedStandardPrint("Took over file: " + filename);
 					} else {
 						AppConfig.timestampedErrorPrint("add_file: File with filename " + filename + " already present on servent");
@@ -637,23 +604,7 @@ public class ChordState {
 					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), backupSuccessor, path);
 					MessageUtil.sendMessage(rm);
 				}
-			}/*
-			for (Integer port : backupSuccessors.keySet()) {
-				if (port != null) {
-					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), port, path);
-					MessageUtil.sendMessage(rm);
-				}
-			}*/
-			/*
-			while (count < 2 && i < successorTable.length) {
-				if (successorTable[i].getChordId() != curr) {
-					RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), successorTable[i].getListenerPort(), path);
-					MessageUtil.sendMessage(rm);
-					count++;
-				}
-				curr = successorTable[i].getChordId();
-				i++;
-			}*/
+			}
 		} else {
 			AppConfig.timestampedErrorPrint("remove_file: file " + path + " couldn't be succesfully deleted");
 		}
@@ -693,7 +644,7 @@ public class ChordState {
 			MessageUtil.sendMessage(trmFrwd);
 			MessageUtil.sendMessage(trmBack);
 			while (!AppConfig.hasToken.get()) {
-
+				//waiting...
 			}
 		}
 		AppConfig.inCriticalSection.set(true);
@@ -724,6 +675,7 @@ public class ChordState {
 		if (head != null) {
 			TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), head, AppConfig.token.toString());
 			MessageUtil.sendMessage(tsm);
+			AppConfig.hasToken.set(false);
 		}
 	}
 

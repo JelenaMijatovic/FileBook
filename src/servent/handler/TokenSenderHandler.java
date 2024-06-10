@@ -33,6 +33,7 @@ public class TokenSenderHandler implements MessageHandler{
                     AppConfig.hasToken.set(true);
                     TokenReceivedMessage trm = new TokenReceivedMessage(AppConfig.myServentInfo.getListenerPort(), clientMessage.getSenderPort());
                     MessageUtil.sendMessage(trm);
+                    AppConfig.chordState.setNeighbourWithToken(0);
                     if (requesterId == AppConfig.myId) {
                         AppConfig.timestampedStandardPrint("Got token!");
                     } else if (requesterId > 9000) {
