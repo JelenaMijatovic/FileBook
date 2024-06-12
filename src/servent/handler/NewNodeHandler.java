@@ -37,11 +37,12 @@ public class NewNodeHandler implements MessageHandler {
 			//check if he is my predecessor
 			boolean isMyPred = AppConfig.chordState.isKeyMine(newNodeInfo.getChordId());
 			if (isMyPred) { //if yes, prepare and send welcome message
-
+				AppConfig.chordState.requestToken();
 				AppConfig.chordState.setPredecessor(newNodeInfo);
 
 				WelcomeMessage wm = new WelcomeMessage(AppConfig.myServentInfo.getListenerPort(), newNodePort);
 				MessageUtil.sendMessage(wm);
+				AppConfig.chordState.releaseToken();
 			} else { //if he is not my predecessor, let someone else take care of it
 				ServentInfo nextNode = AppConfig.chordState.getNextNodeForKey(newNodeInfo.getChordId());
 				NewNodeMessage nnm = new NewNodeMessage(newNodePort, nextNode.getListenerPort());

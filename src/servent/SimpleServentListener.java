@@ -115,8 +115,6 @@ public class SimpleServentListener implements Runnable, Cancellable {
 				case SEND:
 					messageHandler = new SendFilesHandler(clientMessage);
 					break;
-				case POISON:
-					break;
 				}
 				
 				threadPool.submit(messageHandler);
