@@ -544,7 +544,6 @@ public class ChordState {
 	public void takeOverFilesFromBackup(int port) {
         List<String> files = new ArrayList<>(backupFiles.keySet());
 		for (String file : files) {
-			AppConfig.timestampedStandardPrint(file);
 			if (backupFiles.get(file) == port) {
 				String filename = String.valueOf(Path.of(file).getFileName());
 				int key = abs(filename.hashCode()) % 64;

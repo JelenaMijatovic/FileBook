@@ -2,9 +2,9 @@ pause 20000
 add_file faraway.txt public
 add_file faraway.png public
 pause 10000
+pause 20000
 remove_file faraway.txt
 remove_file faraway.png
-pause 20000
 pause 20000
 pause 20000
 stop
