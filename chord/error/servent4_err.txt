@@ -1,0 +1,2 @@
+02:18:55 - Couldn't send message: [0|1600|3|null|REMOVE|0|0]
+02:19:03 - Couldn't send message: [0|1600|40|null|REMOVE|1300|4]
