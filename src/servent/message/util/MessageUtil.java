@@ -3,8 +3,11 @@ package servent.message.util;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
 
 import app.AppConfig;
+import servent.message.BasicMessage;
 import servent.message.Message;
 
 /**
@@ -26,7 +29,13 @@ public class MessageUtil {
 	 * Flip this to false to disable printing every message send / receive.
 	 */
 	public static final boolean MESSAGE_UTIL_PRINTING = true;
-	
+
+	private List<BasicMessage> unsentMessages = new ArrayList<>();
+
+	public List<BasicMessage> getUnsentMessages() {
+		return unsentMessages;
+	}
+
 	public static Message readMessage(Socket socket) {
 		
 		Message clientMessage = null;

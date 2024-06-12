@@ -8,12 +8,10 @@ import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import servent.handler.IsAliveHandler;
 import servent.message.*;
 import servent.message.util.MessageUtil;
 
@@ -48,26 +46,25 @@ public class ChordState {
 	public static int chordHash(int value) {
 		return 61 * value % CHORD_SIZE;
 	}
-	
+
 	private int chordLevel; //log_2(CHORD_SIZE)
-	
+
 	private ServentInfo[] successorTable;
 	private ServentInfo predecessorInfo;
-	
+
 	//we DO NOT use this to send messages, but only to construct the successor table
 	private List<ServentInfo> allNodeInfo;
-	
-	private Map<Integer, Integer> valueMap;
-
 	private Map<String, Integer> myFiles;
 	private Map<String, Integer> backupFiles;
+	private Map<String, Integer> filesToBeDeleted;
 	private Set<Integer> friends;
 	private HashMap<Integer, Integer> suspects;
 	private Integer[] backupSuccessors;
 	private Integer[] backupLateCount;
 	private int neighbourWithToken;
+	boolean waitingForToken;
 	ScheduledExecutorService timerService = Executors.newSingleThreadScheduledExecutor();
-	
+
 	public ChordState() {
 		this.chordLevel = 1;
 		int tmp = CHORD_SIZE;
@@ -78,24 +75,28 @@ public class ChordState {
 			tmp /= 2;
 			this.chordLevel++;
 		}
-		
+
 		successorTable = new ServentInfo[chordLevel];
 		for (int i = 0; i < chordLevel; i++) {
 			successorTable[i] = null;
 		}
 		backupSuccessors = new Integer[2];
 		backupLateCount = new Integer[2];
-
+		for (int i = 0; i < 2; i++) {
+			backupSuccessors[i] = null;
+			backupLateCount[i] = 0;
+		}
 		predecessorInfo = null;
-		valueMap = new HashMap<>();
 		myFiles = new HashMap<>();
 		backupFiles = new HashMap<>();
+		filesToBeDeleted = new HashMap<>();
 		friends = new HashSet<>();
 		suspects = new HashMap<>();
 		neighbourWithToken = 0;
+		waitingForToken = false;
 		allNodeInfo = new ArrayList<>();
 	}
-	
+
 	/**
 	 * This should be called once after we get <code>WELCOME</code> message.
 	 * It sets up our initial value map and our first successor so we can send <code>UPDATE</code>.
@@ -104,15 +105,14 @@ public class ChordState {
 	public void init(WelcomeMessage welcomeMsg) {
 		//set a temporary pointer to next node, for sending of update message
 		successorTable[0] = new ServentInfo("localhost", welcomeMsg.getSenderPort());
-		this.valueMap = welcomeMsg.getValues();
-		
+
 		//tell bootstrap this node is not a collider
 		try {
 			Socket bsSocket = new Socket("localhost", AppConfig.BOOTSTRAP_PORT);
-			
+
 			PrintWriter bsWriter = new PrintWriter(bsSocket.getOutputStream());
 			bsWriter.write("New\n" + AppConfig.myServentInfo.getListenerPort() + "\n");
-			
+
 			bsWriter.flush();
 			bsSocket.close();
 		} catch (UnknownHostException e) {
@@ -143,7 +143,17 @@ public class ChordState {
 					}
                     if (backupLateCount[i] >= AppConfig.STRONG_LIMIT/AppConfig.WEAK_lIMIT && suspects.containsKey(backupSuccessors[i]) && suspects.get(backupSuccessors[i]) > 0) {
 						AppConfig.timestampedStandardPrint(backupSuccessors[i] + " super late!");
-						removeNode(backupSuccessors[i]);
+						if (i == 1) {
+							int lost = backupSuccessors[i];
+							removeNode(backupSuccessors[i]);
+							LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), String.valueOf(lost), "F");
+							MessageUtil.sendMessage(lnm);
+							lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getPredecessor().getListenerPort(), String.valueOf(lost), "B");
+							MessageUtil.sendMessage(lnm);
+							AppConfig.chordState.takeOverFilesFromBackup(backupSuccessors[i]);
+						} else {
+							backupSuccessors[i] = null;
+						}
 					}
 				}
 				if (backupSuccessors[i] != null) {
@@ -157,33 +167,25 @@ public class ChordState {
 	public int getChordLevel() {
 		return chordLevel;
 	}
-	
+
 	public ServentInfo[] getSuccessorTable() {
 		return successorTable;
 	}
-	
+
 	public int getNextNodePort() {
 		return successorTable[0].getListenerPort();
 	}
-	
+
 	public ServentInfo getPredecessor() {
 		return predecessorInfo;
 	}
-	
+
 	public void setPredecessor(ServentInfo newNodeInfo) {
 		this.predecessorInfo = newNodeInfo;
 	}
 
-	public Map<Integer, Integer> getValueMap() {
-		return valueMap;
-	}
-
 	public List<ServentInfo> getAllNodeInfo() {
 		return allNodeInfo;
-	}
-
-	public void setValueMap(Map<Integer, Integer> valueMap) {
-		this.valueMap = valueMap;
 	}
 
 	public Set<Integer> getFriends() {
@@ -198,7 +200,7 @@ public class ChordState {
 		return neighbourWithToken;
 	}
 
-	public void setNeighbourWithToken(int neighbourWithToken) {
+	public void setNeighbourWithToken(Integer neighbourWithToken) {
 		this.neighbourWithToken = neighbourWithToken;
 	}
 
@@ -210,10 +212,14 @@ public class ChordState {
 		return backupLateCount;
 	}
 
+	public boolean isWaitingForToken() {
+		return waitingForToken;
+	}
+
 	public void stopTimer() {
 		timerService.shutdown();
 	}
-	
+
 	public boolean isCollision(int chordId) {
 		if (chordId == AppConfig.myServentInfo.getChordId()) {
 			return true;
@@ -225,7 +231,7 @@ public class ChordState {
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Returns true if we are the owner of the specified key.
 	 */
@@ -233,10 +239,10 @@ public class ChordState {
 		if (predecessorInfo == null) {
 			return true;
 		}
-		
+
 		int predecessorChordId = predecessorInfo.getChordId();
 		int myChordId = AppConfig.myServentInfo.getChordId();
-		
+
 		if (predecessorChordId < myChordId) { //no overflow
 			if (key <= myChordId && key > predecessorChordId) {
 				return true;
@@ -246,10 +252,10 @@ public class ChordState {
 				return true;
 			}
 		}
-		
+
 		return false;
 	}
-	
+
 	/**
 	 * Main chord operation - find the nearest node to hop to find a specific key.
 	 * We have to take a value that is smaller than required to make sure we don't overshoot.
@@ -259,10 +265,10 @@ public class ChordState {
 		if (isKeyMine(key)) {
 			return AppConfig.myServentInfo;
 		}
-		
+
 		//normally we start the search from our first successor
 		int startInd = 0;
-		
+
 		//if the key is smaller than us, and we are not the owner,
 		//then all nodes up to CHORD_SIZE will never be the owner,
 		//so we start the search from the first item in our table after CHORD_SIZE
@@ -274,17 +280,17 @@ public class ChordState {
 				skip++;
 			}
 		}
-		
+
 		int previousId = successorTable[startInd].getChordId();
-		
+
 		for (int i = startInd + 1; i < successorTable.length; i++) {
 			if (successorTable[i] == null) {
 				AppConfig.timestampedErrorPrint("Couldn't find successor for " + key);
 				break;
 			}
-			
+
 			int successorId = successorTable[i].getChordId();
-			
+
 			if (successorId >= key) {
 				return successorTable[i-1];
 			}
@@ -300,23 +306,23 @@ public class ChordState {
 
 	private void updateSuccessorTable() {
 		//first node after me has to be successorTable[0]
-		
+
 		int currentNodeIndex = 0;
 		ServentInfo currentNode = allNodeInfo.get(currentNodeIndex);
 		successorTable[0] = currentNode;
-		
+
 		int currentIncrement = 2;
-		
+
 		ServentInfo previousNode = AppConfig.myServentInfo;
-		
+
 		//i is successorTable index
 		for(int i = 1; i < chordLevel; i++, currentIncrement *= 2) {
 			//we are looking for the node that has larger chordId than this
 			int currentValue = (AppConfig.myServentInfo.getChordId() + currentIncrement) % CHORD_SIZE;
-			
+
 			int currentId = currentNode.getChordId();
 			int previousId = previousNode.getChordId();
-			
+
 			//this loop needs to skip all nodes that have smaller chordId than currentValue
 			while (true) {
 				if (currentValue > currentId) {
@@ -348,8 +354,16 @@ public class ChordState {
 				}
 			}
 		}
-		backupSuccessors[0] = getPredecessor().getListenerPort();
 		int oldPort = 0;
+		if (backupSuccessors[0] != null) {
+			oldPort = backupSuccessors[0];
+		}
+		backupSuccessors[0] = getPredecessor().getListenerPort();
+		if (oldPort != backupSuccessors[0]) {
+			backupLateCount[0] = 0;
+			catchUpBackup(backupSuccessors[0]);
+		}
+		oldPort = 0;
 		if (backupSuccessors[1] != null) {
 			oldPort = backupSuccessors[1];
 		}
@@ -357,11 +371,11 @@ public class ChordState {
 		if (oldPort != backupSuccessors[1]) {
 			backupLateCount[1] = 0;
 			catchUpBackup(backupSuccessors[1]);
-			//RemoveMessage rm
+			RemoveMessage rm = new RemoveMessage(AppConfig.myServentInfo.getListenerPort(), oldPort, null);
+			MessageUtil.sendMessage(rm);
 		}
 		if (Objects.equals(backupSuccessors[0], backupSuccessors[1])) {
 			AppConfig.timestampedStandardPrint(backupSuccessors[0] + " is the only other node!");
-			backupLateCount[1] = null;
 		}
 		AppConfig.timestampedStandardPrint(Arrays.toString(backupSuccessors));
 		for (Map.Entry<String, Integer> file : myFiles.entrySet()) {
@@ -378,11 +392,11 @@ public class ChordState {
 	/**
 	 * This method constructs an ordered list of all nodes. They are ordered by chordId, starting from this node.
 	 * Once the list is created, we invoke <code>updateSuccessorTable()</code> to do the rest of the work.
-	 * 
+	 *
 	 */
 	public void addNodes(List<ServentInfo> newNodes) {
 		allNodeInfo.addAll(newNodes);
-		
+
 		allNodeInfo.sort(new Comparator<ServentInfo>() {
 
 			@Override
@@ -391,10 +405,10 @@ public class ChordState {
 			}
 
 		});
-		
+
 		List<ServentInfo> newList = new ArrayList<>();
 		List<ServentInfo> newList2 = new ArrayList<>();
-		
+
 		int myId = AppConfig.myServentInfo.getChordId();
 		for (ServentInfo serventInfo : allNodeInfo) {
 			if (serventInfo.getChordId() < myId) {
@@ -403,7 +417,7 @@ public class ChordState {
 				newList.add(serventInfo);
 			}
 		}
-		
+
 		allNodeInfo.clear();
 		allNodeInfo.addAll(newList);
 		allNodeInfo.addAll(newList2);
@@ -419,7 +433,7 @@ public class ChordState {
 	 *
 	 */
 	public void removeNode(Integer port) {
-		requestToken();
+		//requestToken();
 		for (ServentInfo si : allNodeInfo) {
 			if (si.getListenerPort() == port) {
 				allNodeInfo.remove(si);
@@ -427,9 +441,7 @@ public class ChordState {
 			}
 		}
 		updateSuccessorTable();
-		LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), port.toString());
-		MessageUtil.sendMessage(lnm);
-		releaseToken();
+		//releaseToken();
 	}
 
 	/**
@@ -490,6 +502,10 @@ public class ChordState {
 	 * If backup creation fails, sends notice to original sender
 	 */
 	public void backupFile(String path, int originalSenderPort) {
+		if (filesToBeDeleted.containsKey(path) && filesToBeDeleted.get(path) == originalSenderPort) {
+			filesToBeDeleted.remove(path);
+			return;
+		}
 		if (!Files.exists(Path.of(AppConfig.root + "/backup/" + originalSenderPort))) {
 			try {
 				Files.createDirectories(Path.of(AppConfig.root + "/backup/" + originalSenderPort));
@@ -526,26 +542,26 @@ public class ChordState {
 	 * Transfers our predecessors' backups to our main file storage if our predecessor goes down
 	 */
 	public void takeOverFilesFromBackup(int port) {
-		for (Map.Entry<String, Integer> backup : backupFiles.entrySet()) {
-			if (backup.getValue() == port) {
-				String filename = String.valueOf(Path.of(backup.getKey()).getFileName());
-				File newFile = new File(AppConfig.root+"/"+filename);
-				try {
-					if (newFile.createNewFile()) {
-						myFiles.put(newFile.getPath(), 1);
-						File file = new File(backup.getKey());
-						if (file.delete()) {
-							backupFiles.remove(backup.getKey());
-							AppConfig.timestampedStandardPrint("Deleted backup " + filename);
+        List<String> files = new ArrayList<>(backupFiles.keySet());
+		for (String file : files) {
+			AppConfig.timestampedStandardPrint(file);
+			if (backupFiles.get(file) == port) {
+				String filename = String.valueOf(Path.of(file).getFileName());
+				int key = abs(filename.hashCode()) % 64;
+				if (isKeyMine(key)) {
+					File newFile = new File(AppConfig.root + "/" + filename);
+					try {
+						if (newFile.createNewFile()) {
+							myFiles.put(newFile.getPath(), 1);
+							AppConfig.timestampedStandardPrint("Took over file: " + filename);
 						} else {
-							AppConfig.timestampedErrorPrint("remove_file: backup " + filename + " couldn't be succesfully deleted");
+							AppConfig.timestampedErrorPrint("add_file: File with filename " + filename + " already present on servent");
 						}
-						AppConfig.timestampedStandardPrint("Took over file: " + filename);
-					} else {
-						AppConfig.timestampedErrorPrint("add_file: File with filename " + filename + " already present on servent");
+					} catch (IOException e) {
+						AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
 					}
-				} catch (IOException e) {
-					AppConfig.timestampedErrorPrint(new RuntimeException(e).getMessage());
+				} else {
+					askAddFile(key, filename, 0);
 				}
 				removeBackup(filename, port);
 			}
@@ -557,6 +573,9 @@ public class ChordState {
 	 */
 	public String listFiles(int port) {
 		String files = "";
+		if (myFiles.isEmpty()) {
+			return "No files present on " + AppConfig.myServentInfo.getListenerPort();
+		}
 		if (AppConfig.myServentInfo.getListenerPort() == port || friends.contains(port)) {
 			for (String f : myFiles.keySet()) {
 				files = files.concat(f + ",");
@@ -620,7 +639,21 @@ public class ChordState {
 			backupFiles.remove(filepath);
 			AppConfig.timestampedStandardPrint("Deleted backup " + path);
 		} else {
+			filesToBeDeleted.put(path, originalSenderPort);
 			AppConfig.timestampedErrorPrint("remove_file: backup " + path + " from servent " + originalSenderPort + " couldn't be succesfully deleted");
+		}
+	}
+
+	/**
+	 * Deletes all backups from a specific node
+	 */
+	public void removeAllBackups(int originalSenderPort) {
+		List<String> files = new ArrayList<>(backupFiles.keySet());
+		for (String file : files) {
+			String filename = String.valueOf(Path.of(file).getFileName());
+			if (backupFiles.get(file) == originalSenderPort) {
+				removeBackup(filename, originalSenderPort);
+			}
 		}
 	}
 
@@ -643,10 +676,12 @@ public class ChordState {
 			TokenRequestMessage trmBack = new TokenRequestMessage(AppConfig.myServentInfo.getListenerPort(), predecessorInfo.getListenerPort(), AppConfig.myId, AppConfig.requests[AppConfig.myId], "B");
 			MessageUtil.sendMessage(trmFrwd);
 			MessageUtil.sendMessage(trmBack);
+			waitingForToken = true;
 			while (!AppConfig.hasToken.get()) {
 				//waiting...
 			}
 		}
+		waitingForToken = false;
 		AppConfig.inCriticalSection.set(true);
 		AppConfig.timestampedStandardPrint("Entered critical section! ");
 	}
@@ -665,10 +700,10 @@ public class ChordState {
 			}
 		}
 		Integer head = AppConfig.token.getQueue().peek();
-		AppConfig.timestampedStandardPrint(String.valueOf(head));
 		if (head != null) {
-			if (head == AppConfig.myId) {
+			while (head != null && head == AppConfig.myId) {
 				head = AppConfig.token.getQueue().poll();
+				AppConfig.timestampedStandardPrint(String.valueOf(head));
 			}
 		}
 		AppConfig.timestampedStandardPrint(String.valueOf(head));
@@ -676,6 +711,10 @@ public class ChordState {
 			TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), getNextNodePort(), head, AppConfig.token.toString());
 			MessageUtil.sendMessage(tsm);
 			AppConfig.hasToken.set(false);
+			TokenNoticeMessage tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), 0);
+			MessageUtil.sendMessage(tnm);
+			tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), 0);
+			MessageUtil.sendMessage(tnm);
 		}
 	}
 

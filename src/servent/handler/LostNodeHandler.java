@@ -2,10 +2,9 @@ package servent.handler;
 
 import app.AppConfig;
 import app.ServentInfo;
-import servent.message.CompareTokenMessage;
+import servent.message.LostNodeMessage;
 import servent.message.Message;
 import servent.message.MessageType;
-import servent.message.TokenRequestMessage;
 import servent.message.util.MessageUtil;
 
 public class LostNodeHandler implements MessageHandler{
@@ -21,12 +20,13 @@ public class LostNodeHandler implements MessageHandler{
         if (clientMessage.getMessageType() == MessageType.LOST) {
             int port;
             String[] splitText = clientMessage.getMessageText().split(":");
-            if (splitText.length == 2) {
+            if (splitText.length == 3) {
                 try {
                     //The stopped node has alerted us
                     port = Integer.parseInt(splitText[0]);
                     int replacementNode = Integer.parseInt(splitText[1]);
-                    if (clientMessage.getSenderPort() == port && AppConfig.chordState.getPredecessor().getListenerPort() == port) {
+                    String direction = splitText[2];
+                    if (clientMessage.getSenderPort() == port && AppConfig.chordState.getPredecessor().getListenerPort() == port && replacementNode != 0) {
                         //The stopped node is our predecessor, take over their files and their predecessor
                         AppConfig.timestampedStandardPrint("Switching predecessor " + port);
                         for (ServentInfo si : AppConfig.chordState.getAllNodeInfo()) {
@@ -35,23 +35,26 @@ public class LostNodeHandler implements MessageHandler{
                                 break;
                             }
                         }
-                        AppConfig.chordState.takeOverFilesFromBackup(port);
                     }
-                    /*
-                    if (AppConfig.chordState.getNeighbourWithToken() == port) {
-                        CompareTokenMessage ctm = new CompareTokenMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), AppConfig.token.toString());
-                        MessageUtil.sendMessage(ctm);
-                    }*/
                     AppConfig.chordState.removeNode(port);
+                    if (direction.equals("F")) {
+                        LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), String.valueOf(port), "F");
+                        MessageUtil.sendMessage(lnm);
+                    } else {
+                        LostNodeMessage lnm = new LostNodeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), String.valueOf(port), "B");
+                        MessageUtil.sendMessage(lnm);
+                    }
+                    AppConfig.chordState.takeOverFilesFromBackup(port);
                 } catch (NumberFormatException e) {
                     AppConfig.timestampedErrorPrint("Got lost node message with bad text: " + clientMessage.getMessageText());
                 }
-            } else {
+            } else if (splitText.length == 2) {
                 //alert from different node
                 try {
                     //check if node is there to be removed
                     int pr = 0;
-                    port = Integer.parseInt(clientMessage.getMessageText());
+                    port = Integer.parseInt(splitText[0]);
+                    String direction = splitText[1];
                     for (ServentInfo si : AppConfig.chordState.getAllNodeInfo()) {
                         if (si.getListenerPort() == port) {
                             pr = 1;
@@ -60,21 +63,28 @@ public class LostNodeHandler implements MessageHandler{
                     }
                     if (pr == 1) {
                         if (AppConfig.chordState.getPredecessor().getListenerPort() == port) {
-                            //The fallen node was our predecessor, take over their files and their predecessor
+                            //The fallen node was our predecessor, take over their files, predecessor and token if present
                             AppConfig.timestampedStandardPrint("Switching predecessor " + port);
                             for (ServentInfo si : AppConfig.chordState.getAllNodeInfo()) {
                                 if (si.getListenerPort() == clientMessage.getSenderPort()) {
                                     AppConfig.chordState.setPredecessor(si);
                                     break;
                                 }
-                            }/*
+                            }
                             if (AppConfig.chordState.getNeighbourWithToken() == port) {
-                                CompareTokenMessage ctm = new CompareTokenMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), AppConfig.token.toString());
-                                MessageUtil.sendMessage(ctm);
-                            }*/
+                                AppConfig.hasToken.set(true);
+                                AppConfig.timestampedStandardPrint("Fallen node had token, taking over");
+                            }
                             AppConfig.chordState.takeOverFilesFromBackup(port);
                         }
                         AppConfig.chordState.removeNode(port);
+                        if (direction.equals("F")) {
+                            LostNodeMessage lnm = new LostNodeMessage(clientMessage.getSenderPort(), AppConfig.chordState.getNextNodePort(), String.valueOf(port), "F");
+                            MessageUtil.sendMessage(lnm);
+                        } else {
+                            LostNodeMessage lnm = new LostNodeMessage(clientMessage.getSenderPort(), AppConfig.chordState.getPredecessor().getListenerPort(), String.valueOf(port), "B");
+                            MessageUtil.sendMessage(lnm);
+                        }
                     }
                 } catch (NumberFormatException e) {
                     AppConfig.timestampedErrorPrint("Got lost node message with bad text: " + clientMessage.getMessageText());

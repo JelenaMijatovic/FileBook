@@ -4,6 +4,8 @@ import app.AppConfig;
 import servent.message.Message;
 import servent.message.MessageType;
 
+import java.util.Arrays;
+
 public class PongHandler implements MessageHandler{
 
     private Message clientMessage;
@@ -16,7 +18,7 @@ public class PongHandler implements MessageHandler{
     public void run() {
         if (clientMessage.getMessageType() == MessageType.PONG) {
             for (int i = 0; i < 2; i++) {
-                if (AppConfig.chordState.getBackupSuccessors()[i] == clientMessage.getSenderPort()) {
+                if (AppConfig.chordState.getBackupSuccessors()[i] != null && AppConfig.chordState.getBackupSuccessors()[i] == clientMessage.getSenderPort()) {
                     AppConfig.chordState.getBackupLateCount()[i] = 0;
                 }
             }

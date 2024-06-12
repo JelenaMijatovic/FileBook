@@ -1,10 +1,7 @@
 package servent.handler;
 
 import app.AppConfig;
-import servent.message.Message;
-import servent.message.MessageType;
-import servent.message.TokenRequestMessage;
-import servent.message.TokenSendMessage;
+import servent.message.*;
 import servent.message.util.MessageUtil;
 
 import java.util.Objects;
@@ -37,6 +34,10 @@ public class TokenRequestHandler implements MessageHandler{
                             TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), clientMessage.getSenderPort(), requesterId, AppConfig.token.toString());
                             MessageUtil.sendMessage(tsm);
                             AppConfig.hasToken.set(false);
+                            TokenNoticeMessage tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), 0);
+                            MessageUtil.sendMessage(tnm);
+                            tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), 0);
+                            MessageUtil.sendMessage(tnm);
                         } else if (!AppConfig.hasToken.get()) {
                             TokenRequestMessage trm;
                             if (Objects.equals(direction, "F")) {

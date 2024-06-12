@@ -91,8 +91,8 @@ public class SimpleServentListener implements Runnable, Cancellable {
 				case TOK_SEND:
 					messageHandler = new TokenSenderHandler(clientMessage);
 					break;
-				case TOK_REC:
-					messageHandler = new TokenReceivedHandler(clientMessage);
+				case TOK_NOC:
+					messageHandler = new TokenNoticeHandler(clientMessage);
 					break;
 				case SUS:
 					messageHandler = new SuspectHandler(clientMessage);

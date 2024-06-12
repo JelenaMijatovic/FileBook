@@ -1,7 +1,7 @@
 pause 50000
 add_file test.txt public
-view_files localhost:1400
 pause 10000
+view_files localhost:1400
 remove_file test.txt
 pause 10000
 pause 20000

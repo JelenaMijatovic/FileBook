@@ -17,13 +17,16 @@ public class SKToken {
      * Queue of processes waiting for the token
      */
     Queue<Integer> queue;
+    Integer[] visits;
 
     public SKToken() {
         lastRequests = new Integer[AppConfig.SERVENT_COUNT];
+        queue = new LinkedList<>();
+        visits = new Integer[AppConfig.SERVENT_COUNT];
         for (int i = 0; i < AppConfig.SERVENT_COUNT; i++) {
             lastRequests[i] = 0;
+            visits[i] = 0;
         }
-        queue = new LinkedList<>();
     }
 
     public Integer[] getLastRequests() {
@@ -32,6 +35,10 @@ public class SKToken {
 
     public Queue<Integer> getQueue() {
         return queue;
+    }
+
+    public Integer[] getVisits() {
+        return visits;
     }
 
     @Override
@@ -49,7 +56,12 @@ public class SKToken {
             tok = tok.substring(0, tok.length()-1);
         } else {
             tok = tok.concat("N");
+        }/*
+        tok = tok.concat(":");
+        for (Integer i : visits) {
+            tok = tok.concat(i + ",");
         }
+        tok = tok.substring(0, tok.length()-1);*/
         return tok;
     }
 
@@ -71,6 +83,16 @@ public class SKToken {
             for (int i = splitQ.length-1; i >= 0; i--) {
                 queue.add(Integer.parseInt(splitQ[i]));
             }
-        }
+        }/*
+        String[] splitV = visitS.split(",");
+        if (splitV.length == AppConfig.SERVENT_COUNT) {
+            int i = 0;
+            for (String s : splitV) {
+                visits[i] = Integer.parseInt(s);
+                i++;
+            }
+        } else {
+            AppConfig.timestampedErrorPrint("Wrong length of token visits string");
+        }*/
     }
 }

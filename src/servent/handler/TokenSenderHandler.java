@@ -30,16 +30,26 @@ public class TokenSenderHandler implements MessageHandler{
                     SKToken token = new SKToken();
                     token.buildTokenfromString(lastRequests, queue);
                     AppConfig.token = token;
-                    AppConfig.hasToken.set(true);
-                    TokenReceivedMessage trm = new TokenReceivedMessage(AppConfig.myServentInfo.getListenerPort(), clientMessage.getSenderPort());
-                    MessageUtil.sendMessage(trm);
                     AppConfig.chordState.setNeighbourWithToken(0);
                     if (requesterId == AppConfig.myId) {
+                        AppConfig.hasToken.set(true);
                         AppConfig.timestampedStandardPrint("Got token!");
+                        TokenNoticeMessage tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), 1);
+                        MessageUtil.sendMessage(tnm);
+                        tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), 1);
+                        MessageUtil.sendMessage(tnm);
                     } else if (requesterId > 9000) {
+                        AppConfig.hasToken.set(true);
                         AppConfig.timestampedStandardPrint("Got token in emergency!");
+                        TokenNoticeMessage tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), 1);
+                        MessageUtil.sendMessage(tnm);
+                        tnm = new TokenNoticeMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getPredecessor().getListenerPort(), 1);
+                        MessageUtil.sendMessage(tnm);
                     } else {
-                        TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), requesterId, lastRequests + ":" + queue);
+                        if (AppConfig.chordState.isWaitingForToken() && !token.getQueue().contains(AppConfig.myId)) {
+                            token.getQueue().add(AppConfig.myId);
+                        }
+                        TokenSendMessage tsm = new TokenSendMessage(AppConfig.myServentInfo.getListenerPort(), AppConfig.chordState.getNextNodePort(), requesterId, token.toString());
                         MessageUtil.sendMessage(tsm);
                     }
                 } catch (NumberFormatException e) {

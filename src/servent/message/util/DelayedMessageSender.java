@@ -6,6 +6,7 @@ import java.net.Socket;
 
 import app.AppConfig;
 import servent.message.Message;
+import servent.message.MessageType;
 
 /**
  * This worker sends a message asynchronously. Doing this in a separate thread
@@ -47,6 +48,9 @@ public class DelayedMessageSender implements Runnable {
 			sendSocket.close();
 		} catch (IOException e) {
 			AppConfig.timestampedErrorPrint("Couldn't send message: " + messageToSend.toString());
+			if (messageToSend.getMessageType() == MessageType.GET) {
+
+			}
 		}
 	}
 	
