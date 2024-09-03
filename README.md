@@ -1,7 +1,7 @@
-# RafBook
+# FileBook
 
 ## 1.  Uvod
-RafBook je distribuiran sistem za čuvanje i pregledanje datoteka. Arhitektura sistema je zasnovana na Chord DHT protokolu<sup>[1](#f1)</sup>.
+FileBook je distribuiran sistem za čuvanje i pregledanje datoteka. Arhitektura sistema je zasnovana na Chord DHT protokolu<sup>[1](#f1)</sup>.
 ## 2. Arhitektura sistema
 ### 2.1.  Konfiguracija sistema
    Pri inicijalizaciji se određuju osobine sistema na osnovu vrednosti koje se čitaju iz konfiguracione datoteke.
