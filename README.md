@@ -106,4 +106,5 @@ Svaki čvor drži kopije svojih fajlova na svom prethodniku i sledbeniku, koje s
 
 ### 6. Reference
    <a name="f1">1.</a> Stoica, I.; Morris, R.; Kaashoek, M. F.; Balakrishnan, H. (2001). "Chord: A scalable peer-to-peer lookup service for internet applications"
+   
    <a name="f2">2.</a> Ichiro Suzuki, Tadao Kasami, [1], ACM Transactions on Computer Systems, Volume 3 Issue 4, Nov. 1985 
