@@ -1,7 +1,7 @@
 # RafBook
 
 ## 1.  Uvod
-RafBook je distribuiran sistem za čuvanje i pregledanje datoteka. Arhitektura sistema je zasnovana na Chord DHT protokolu[^1].
+RafBook je distribuiran sistem za čuvanje i pregledanje datoteka. Arhitektura sistema je zasnovana na Chord DHT protokolu<sup>[1](#f1)</sup>.
 ## 2. Arhitektura sistema
 ### 2.1.  Konfiguracija sistema
    Pri inicijalizaciji se određuju osobine sistema na osnovu vrednosti koje se čitaju iz konfiguracione datoteke.
@@ -17,7 +17,7 @@ Novi čvor pri inicijalizaciji kontaktira bootstrap server da mu prosledi port n
 ### 2.3 Uklanjanje čvora iz mreže
 Kada se čvor uredno ugasi, on obaveštava svog prethodnika i sledbenika LOST porukama i sledbeniku prosleđuje sopstvenog prethodnika kao zamenu. Ako trenutno drži token, prosleđuje ga susedu koji je responzivniji. Ako je čvor neplanirano otkazao, njegov sledbenik će rešiti da drži token ukoliko ustanovi da ga je otkazani čvor imao. Prethodnik i sledbenik ažuriraju svoje tabele sledbenika i rezervne čvorove, redistribuiraju fajlove po hešu i šalju LOST poruke dalje kroz mrežu, sa time da prethodnik šalje poruku unazad sopstvenom prethodniku a sledbenik šalje poruku unapred sledbeniku, što se nastavlja dok svi čvorovi u mreži nisu uklonili otkazani čvor iz svojih tabela sledbenika i ažurirali sopstvena stanja.
 ### 2.4 Mutex
-Pri dodavanju i uklanjanju čvorova iz mreže potrebno je uzajamno isključivanje. Ovo se ostvara koristeći token mehanizam zasnovan na Suzuki-Kasami algoritmu[^2]. Token sadrži niz u kome čuva najnoviji redni broj zahteva za token od svakog čvora, kao i red čvorova koji čekaju na token. Čvorovi takođe čuvaju svoju verziju niza broja zahteva za token u svrhu usklađenosti, i razlikuju se po myId vrednosti koja određuje njihov položaj u nizu. Prvi čvor u mreži će inicijalizovati i držati token. Čvorovi šalju zahteve za tokene preko TOK_REQ poruka unapred i unazad kroz sistem, preko prethodnika i sledbenika. Kada zahtev stikne to čvora koji drži token, on prosleđuje token preko TOK_SEND poruke. Kada primi token, čvor obaveštava svoje susede da drži token preko TOK_NOC poruka, da bi znali gde se nalazio token u slučaju da dođe do naglog otkaza čvora koji ga je držao. 
+Pri dodavanju i uklanjanju čvorova iz mreže potrebno je uzajamno isključivanje. Ovo se ostvara koristeći token mehanizam zasnovan na Suzuki-Kasami algoritmu<sup>[2](#f2)</sup>. Token sadrži niz u kome čuva najnoviji redni broj zahteva za token od svakog čvora, kao i red čvorova koji čekaju na token. Čvorovi takođe čuvaju svoju verziju niza broja zahteva za token u svrhu usklađenosti, i razlikuju se po myId vrednosti koja određuje njihov položaj u nizu. Prvi čvor u mreži će inicijalizovati i držati token. Čvorovi šalju zahteve za tokene preko TOK_REQ poruka unapred i unazad kroz sistem, preko prethodnika i sledbenika. Kada zahtev stikne to čvora koji drži token, on prosleđuje token preko TOK_SEND poruke. Kada primi token, čvor obaveštava svoje susede da drži token preko TOK_NOC poruka, da bi znali gde se nalazio token u slučaju da dođe do naglog otkaza čvora koji ga je držao. 
 ### 2.5. Detekcija otkaza
 Čvorovi pinguju svog prethodnika i sledbenika periodično u zavisnosti od specificirane slabe granice otkaza preko PING poruka, na koje čvorovi treba da odgovore PONG porukama pre slabe granice otkaza. Kada jedan od ovih čvorova jednom prekrši slabu granicu, označava se kao sumnjiv i šalje mu se IS_ALIVE poruka, a drugom čvoru koji se pinguje se šalje SUS poruka, koji će dalje isto slati IS_ALIVE poruku sumnjivom čvoru. Ako čvor na obe IS_ALIVE poruke odgovori sa ALIVE porukama, sklanja se iz liste sumnjičenih. Ako ne pošalje nijednu PONG poruku pre jake granice otkaza i označen je kao sumnjiv, njehov prethodnik ga za sebe uklanja i pokreće dvosmerni lanac LOST poruka kroz mrežu.
 ### 2.6. Otpornost na oktaze
@@ -105,5 +105,5 @@ Svaki čvor drži kopije svojih fajlova na svom prethodniku i sledbeniku, koje s
 
 
 ### 6. Reference
-   [^1] Stoica, I.; Morris, R.; Kaashoek, M. F.; Balakrishnan, H. (2001). "Chord: A scalable peer-to-peer lookup service for internet applications"
-   [^2] Ichiro Suzuki, Tadao Kasami, [1], ACM Transactions on Computer Systems, Volume 3 Issue 4, Nov. 1985 
+   <a name="f1">1.</a> Stoica, I.; Morris, R.; Kaashoek, M. F.; Balakrishnan, H. (2001). "Chord: A scalable peer-to-peer lookup service for internet applications"
+   <a name="f2">2.</a> Ichiro Suzuki, Tadao Kasami, [1], ACM Transactions on Computer Systems, Volume 3 Issue 4, Nov. 1985 
